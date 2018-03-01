@@ -17,6 +17,15 @@ type timer interface {
 
 type realClock struct{}
 
+// BeforeFunc is the func type used to modify or replace the *logrus.Entry prior
+// to calling the next func in the middleware chain
+type BeforeFunc func(*logrus.Entry, *http.Request, string) *logrus.Entry
+
+// AfterFunc is the func type used to modify or replace the *logrus.Entry after
+// calling the next func in the middleware chain
+type AfterFunc func(*logrus.Entry, negroni.ResponseWriter, time.Duration, string) *logrus.Entry
+
+
 func (rc *realClock) Now() time.Time {
 	return time.Now()
 }
@@ -31,8 +40,8 @@ type Middleware struct {
 	Logger *logrus.Logger
 	// Name is the name of the application as recorded in latency metrics
 	Name   string
-	Before func(*logrus.Entry, *http.Request, string) *logrus.Entry
-	After  func(*logrus.Entry, negroni.ResponseWriter, time.Duration, string) *logrus.Entry
+	Before BeforeFunc
+	After  AfterFunc
 
 	logStarting bool
 
@@ -71,6 +80,20 @@ func NewMiddlewareFromLogger(logger *logrus.Logger, name string) *Middleware {
 		Name:   name,
 		Before: DefaultBefore,
 		After:  DefaultAfter,
+
+		logStarting: true,
+		clock:       &realClock{},
+	}
+}
+
+
+// NewMiddlewareFromLogger returns a new *Middleware which writes to a given logrus logger.
+func NewCustomMiddlewareFromLogger(logger *logrus.Logger, name string, before BeforeFunc, after AfterFunc) *Middleware {
+	return &Middleware{
+		Logger: logger,
+		Name:   name,
+		Before: before,
+		After:  after,
 
 		logStarting: true,
 		clock:       &realClock{},
@@ -140,14 +163,6 @@ func (m *Middleware) ServeHTTP(rw http.ResponseWriter, r *http.Request, next htt
 
 	m.After(entry, res, latency, m.Name).Info("completed handling request")
 }
-
-// BeforeFunc is the func type used to modify or replace the *logrus.Entry prior
-// to calling the next func in the middleware chain
-type BeforeFunc func(*logrus.Entry, *http.Request, string) *logrus.Entry
-
-// AfterFunc is the func type used to modify or replace the *logrus.Entry after
-// calling the next func in the middleware chain
-type AfterFunc func(*logrus.Entry, negroni.ResponseWriter, time.Duration, string) *logrus.Entry
 
 // DefaultBefore is the default func assigned to *Middleware.Before
 func DefaultBefore(entry *logrus.Entry, req *http.Request, remoteAddr string) *logrus.Entry {
